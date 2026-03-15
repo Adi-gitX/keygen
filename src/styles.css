@@ -128,13 +128,15 @@ a {
 }
 
 .input-group,
-.custom-input {
+.custom-input,
+.textarea-group {
   display: grid;
   gap: 10px;
 }
 
 .input-group span,
 .custom-input span,
+.textarea-group span,
 .summary-card span {
   font-size: 0.82rem;
   font-weight: 700;
@@ -144,7 +146,8 @@ a {
 }
 
 .input-group input,
-.custom-input input {
+.custom-input input,
+.textarea-group textarea {
   width: 100%;
   border: 1px solid rgba(17, 17, 17, 0.14);
   border-radius: 22px;
@@ -164,12 +167,24 @@ a {
   padding: 0 18px;
 }
 
+.textarea-group textarea {
+  min-height: 120px;
+  padding: 16px 18px;
+  resize: vertical;
+}
+
 .input-group input:focus,
-.custom-input input:focus {
+.custom-input input:focus,
+.textarea-group textarea:focus {
   outline: none;
   border-color: rgba(17, 17, 17, 0.35);
   box-shadow: 0 0 0 5px rgba(17, 17, 17, 0.07);
   transform: translateY(-1px);
+}
+
+.textarea-group small {
+  font-size: 0.88rem;
+  color: rgba(17, 17, 17, 0.56);
 }
 
 .controls-row,
@@ -237,6 +252,16 @@ a {
   margin: 0;
   font-size: 0.94rem;
   color: rgba(17, 17, 17, 0.68);
+}
+
+.test-snippet {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(17, 17, 17, 0.05);
+  color: rgba(17, 17, 17, 0.72);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
 .primary-button,

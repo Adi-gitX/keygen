@@ -6,13 +6,14 @@ const CHARACTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const CODE_LENGTH = 16;
 const MAX_CUSTOM_COUNT = 1000;
 const TEST_CONCURRENCY = 6;
+const DEFAULT_FAILURE_PATTERNS = ['activation_key not found'];
 
 const STATUS_META = {
   untested: { label: 'Untested', detail: 'Ready to test', tone: 'muted' },
   testing: { label: 'Testing', detail: 'Checking now...', tone: 'dark' },
-  working: { label: 'Working', detail: 'Verified in browser', tone: 'success' },
+  working: { label: 'Working', detail: 'Verified by the server', tone: 'success' },
   'not-working': { label: 'Not working', detail: 'Request returned an error', tone: 'danger' },
-  blocked: { label: 'Blocked', detail: 'Browser could not verify this URL', tone: 'warning' },
+  blocked: { label: 'Blocked', detail: 'The server could not reach this URL', tone: 'warning' },
   invalid: { label: 'Invalid', detail: 'Use a full http(s) URL to test', tone: 'warning' },
 };
 
@@ -28,7 +29,16 @@ function createCode() {
 }
 
 function normalizeBase(input) {
-  return input.endsWith('/') ? input : `${input}/`;
+  return input;
+}
+
+function parseFailurePatterns(input) {
+  const parsedPatterns = input
+    .split('\n')
+    .map((pattern) => pattern.trim())
+    .filter(Boolean);
+
+  return parsedPatterns.length > 0 ? parsedPatterns : DEFAULT_FAILURE_PATTERNS;
 }
 
 function readDoneLinks() {
@@ -63,32 +73,45 @@ function isHttpUrl(value) {
   }
 }
 
-async function checkGeneratedLink(fullLink) {
+async function checkGeneratedLink(fullLink, failurePatterns) {
   if (!isHttpUrl(fullLink)) {
     return buildCheckState('invalid');
   }
 
   try {
-    const response = await fetch(fullLink, {
-      method: 'GET',
+    const response = await fetch('/api/check', {
+      method: 'POST',
       cache: 'no-store',
-      redirect: 'follow',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url: fullLink,
+        failurePatterns,
+      }),
     });
 
-    if (response.ok) {
-      return buildCheckState('working', {
-        detail: `HTTP ${response.status}`,
+    if (!response.ok) {
+      return buildCheckState('blocked', {
+        detail: `Checker API failed with HTTP ${response.status}.`,
         checkedAt: Date.now(),
       });
     }
 
-    return buildCheckState('not-working', {
-      detail: `HTTP ${response.status}`,
-      checkedAt: Date.now(),
+    const result = await response.json();
+    const nextStatus = STATUS_META[result.status] ? result.status : 'blocked';
+
+    return buildCheckState(nextStatus, {
+      detail: result.detail || STATUS_META[nextStatus].detail,
+      checkedAt: result.checkedAt ?? Date.now(),
+      finalUrl: result.finalUrl ?? null,
+      httpStatus: result.httpStatus ?? null,
+      matchedPattern: result.matchedPattern ?? null,
+      snippet: result.snippet ?? null,
     });
   } catch (error) {
     return buildCheckState('blocked', {
-      detail: 'Could not verify in the browser. The site may block CORS or the request may have failed.',
+      detail: 'The local checker server is unavailable. Start the app with npm run dev or npm run start.',
       checkedAt: Date.now(),
     });
   }
@@ -102,6 +125,9 @@ function App() {
   const [doneLinks, setDoneLinks] = useState(() => readDoneLinks());
   const [linkChecks, setLinkChecks] = useState({});
   const [isTestingAll, setIsTestingAll] = useState(false);
+  const [failurePatternsInput, setFailurePatternsInput] = useState(
+    DEFAULT_FAILURE_PATTERNS.join('\n'),
+  );
   const latestRunRef = useRef(0);
 
   useEffect(() => {
@@ -158,6 +184,10 @@ function App() {
       },
     );
   }, [generatedLinks, linkChecks]);
+  const activeFailurePatterns = useMemo(
+    () => parseFailurePatterns(failurePatternsInput),
+    [failurePatternsInput],
+  );
 
   function handleGenerate(event) {
     event.preventDefault();
@@ -213,7 +243,7 @@ function App() {
       [fullLink]: buildCheckState('testing'),
     }));
 
-    const result = await checkGeneratedLink(fullLink);
+    const result = await checkGeneratedLink(fullLink, activeFailurePatterns);
 
     setLinkChecks((currentValue) => ({
       ...currentValue,
@@ -278,7 +308,8 @@ function App() {
           <h1>Generate, review, and test every link in one place.</h1>
           <p className="hero-text">
             Create full links with 16-character keys, review them in a clean combinations box,
-            and test them in a separate monitor to see which ones work and which ones do not.
+            and append each key directly to your base text with no slash before testing what
+            works and what does not.
           </p>
         </div>
 
@@ -415,9 +446,22 @@ function App() {
           </header>
 
           <p className="panel-note">
-            Browser testing works best for full `http` or `https` URLs. Some sites may show as
-            blocked if they do not allow client-side requests.
+            Testing now runs through the local server and scans the response body for failure
+            phrases. If a page returns `200` but contains `activation_key not found`, it will be
+            marked as not working.
           </p>
+
+          <label className="textarea-group" htmlFor="failure-patterns">
+            <span>Failure phrases to detect</span>
+            <textarea
+              id="failure-patterns"
+              name="failure-patterns"
+              placeholder="activation_key not found"
+              value={failurePatternsInput}
+              onChange={(event) => setFailurePatternsInput(event.target.value)}
+            />
+            <small>{activeFailurePatterns.length} active rule{activeFailurePatterns.length === 1 ? '' : 's'}</small>
+          </label>
 
           <div className="summary-grid">
             <div className="summary-card">
@@ -464,6 +508,9 @@ function App() {
                     </div>
                     <p className="result-link">{item.fullLink}</p>
                     <p className="test-detail">{currentCheck.detail}</p>
+                    {currentCheck.snippet ? (
+                      <p className="test-snippet">"{currentCheck.snippet}"</p>
+                    ) : null}
                   </div>
                 );
               })}
